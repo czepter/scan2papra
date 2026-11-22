@@ -4,6 +4,9 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-osd \
+ && rm -rf /var/lib/apt/lists/*
 RUN pip install "requests>=2.32,<3" "img2pdf>=0.6,<0.7" "pillow>=11,<13"
 RUN mkdir -p /data
 

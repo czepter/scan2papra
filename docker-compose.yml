@@ -31,6 +31,7 @@ services:
       - BLANK_RATIO=${BLANK_RATIO:-0.004}
       - AUTO_COLOR=${AUTO_COLOR:-true}
       - AUTO_CROP=${AUTO_CROP:-true}
+      - ROTATE=${ROTATE:-auto}
       - FILENAME_PREFIX=${FILENAME_PREFIX:-scan}
       # Auto-Scan beim Einlegen (experimentell, Alternative zur Taste)
       - AUTO_SCAN=${AUTO_SCAN:-false}

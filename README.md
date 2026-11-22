@@ -52,7 +52,8 @@ Kommt das Ereignis, aber `CreateScanJob abgelehnt`: `LOG_LEVEL=DEBUG` setzen und
 - `SKIP_BLANK`: leere Seiten (z. B. Rückseiten beim Duplex) fallen raus
 - `AUTO_COLOR`: Seiten ohne Farbe werden als Graustufen gespeichert, das spart Platz
 - `AUTO_CROP`: schneidet dunklen Einzugshintergrund unter kurzen oder schmalen Belegen (Kassenbons) ab
-- Automatisches Drehen und Schräglagenkorrektur gibt es nicht, weil eSCL und WSD das nicht anbieten
+- `ROTATE=auto`: dreht jede Seite per Texterkennung (tesseract) richtig herum, auch bei gemischt eingelegten Stapeln. Feste Werte `0`, `90`, `180`, `270` überspringen die Erkennung
+- Eine Schräglagenkorrektur gibt es nicht
 
 ## Endpunkte
 

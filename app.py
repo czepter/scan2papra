@@ -14,6 +14,8 @@ import logging
 import os
 import secrets
 import signal
+import subprocess
+import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -58,7 +60,8 @@ PAPER = env("PAPER", "A4").upper()
 SKIP_BLANK = env_bool("SKIP_BLANK", True)
 BLANK_RATIO = float(env("BLANK_RATIO", "0.004"))
 AUTO_COLOR = env_bool("AUTO_COLOR", True)   # Seiten ohne Farbe als Graustufen speichern
-AUTO_CROP = env_bool("AUTO_CROP", True)     # dunklen Einzugshintergrund unter kurzen Belegen abschneiden
+AUTO_CROP = env_bool("AUTO_CROP", True)
+ROTATE = env("ROTATE", "auto").lower()      # auto | 0 | 90 | 180 | 270     # dunklen Einzugshintergrund unter kurzen Belegen abschneiden
 FILENAME_PREFIX = env("FILENAME_PREFIX", "scan")
 
 AUTO_SCAN = env_bool("AUTO_SCAN", False)
@@ -212,11 +215,42 @@ def crop_background(im: Image.Image) -> Image.Image:
     return im.crop(box)
 
 
+def detect_rotation(im: Image.Image) -> int:
+    """Ausrichtung per tesseract OSD. Liefert Grad im Uhrzeigersinn, um die Seite aufzurichten."""
+    small = im.convert("L")
+    if small.height > 2400:
+        small = small.resize((int(small.width * 2400 / small.height), 2400))
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        small.save(f.name)
+        try:
+            r = subprocess.run(["tesseract", f.name, "-", "--psm", "0"],
+                               capture_output=True, text=True, timeout=60)
+        except Exception as e:
+            log.warning("Ausrichtungserkennung fehlgeschlagen: %s", e)
+            return 0
+    out = r.stdout + r.stderr
+    rotate, conf = 0, 0.0
+    for line in out.splitlines():
+        if line.startswith("Rotate:"):
+            rotate = int(line.split(":")[1])
+        elif line.startswith("Orientation confidence:"):
+            conf = float(line.split(":")[1])
+    if rotate and conf < 1.5:
+        log.debug("Ausrichtung unsicher (Rotate %d, Konfidenz %.2f), Seite bleibt", rotate, conf)
+        return 0
+    return rotate
+
+
 def postprocess(jpeg: bytes) -> bytes:
-    if not (AUTO_COLOR or AUTO_CROP):
+    if not (AUTO_COLOR or AUTO_CROP or ROTATE != "0"):
         return jpeg
     im = Image.open(io.BytesIO(jpeg))
     changed = False
+    rotate = detect_rotation(im) if ROTATE == "auto" else int(ROTATE or 0) % 360
+    if rotate:
+        im = im.rotate(-rotate, expand=True)  # PIL dreht gegen den Uhrzeigersinn
+        changed = True
+        log.info("Seite um %d° gedreht", rotate)
     if AUTO_CROP:
         cropped = crop_background(im)
         changed = cropped.size != im.size
