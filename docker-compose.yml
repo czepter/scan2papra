@@ -32,6 +32,8 @@ services:
       - AUTO_COLOR=${AUTO_COLOR:-true}
       - AUTO_CROP=${AUTO_CROP:-true}
       - ROTATE=${ROTATE:-auto}
+      - ROTATE_FALLBACK=${ROTATE_FALLBACK:-0}
+      - ROTATE_MIN_CONFIDENCE=${ROTATE_MIN_CONFIDENCE:-2.0}
       - FILENAME_PREFIX=${FILENAME_PREFIX:-scan}
       # Auto-Scan beim Einlegen (experimentell, Alternative zur Taste)
       - AUTO_SCAN=${AUTO_SCAN:-false}

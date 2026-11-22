@@ -61,7 +61,9 @@ SKIP_BLANK = env_bool("SKIP_BLANK", True)
 BLANK_RATIO = float(env("BLANK_RATIO", "0.004"))
 AUTO_COLOR = env_bool("AUTO_COLOR", True)   # Seiten ohne Farbe als Graustufen speichern
 AUTO_CROP = env_bool("AUTO_CROP", True)
-ROTATE = env("ROTATE", "auto").lower()      # auto | 0 | 90 | 180 | 270     # dunklen Einzugshintergrund unter kurzen Belegen abschneiden
+ROTATE = env("ROTATE", "auto").lower()      # auto | 0 | 90 | 180 | 270
+ROTATE_FALLBACK = int(env("ROTATE_FALLBACK", "0")) % 360  # bei ROTATE=auto für Seiten ohne sichere Erkennung
+ROTATE_MIN_CONFIDENCE = float(env("ROTATE_MIN_CONFIDENCE", "2.0"))     # dunklen Einzugshintergrund unter kurzen Belegen abschneiden
 FILENAME_PREFIX = env("FILENAME_PREFIX", "scan")
 
 AUTO_SCAN = env_bool("AUTO_SCAN", False)
@@ -226,42 +228,49 @@ def crop_background(im: Image.Image) -> Image.Image:
     return im.crop(box)
 
 
-def detect_rotation(im: Image.Image) -> int:
-    """Ausrichtung per tesseract OSD. Liefert Grad im Uhrzeigersinn, um die Seite aufzurichten."""
+def detect_rotation(im: Image.Image) -> tuple[int, float] | None:
+    """Ausrichtung per tesseract OSD: (Grad im Uhrzeigersinn, Konfidenz) oder None, wenn keine Aussage möglich."""
     small = im.convert("L")
     if small.height > 2400:
         small = small.resize((int(small.width * 2400 / small.height), 2400))
     with tempfile.NamedTemporaryFile(suffix=".png") as f:
         small.save(f.name)
         try:
-            r = subprocess.run(["tesseract", f.name, "-", "--psm", "0"],
+            r = subprocess.run(["tesseract", f.name, "-", "--psm", "0", "-c", "min_characters_to_try=20"],
                                capture_output=True, text=True, timeout=60)
         except Exception as e:
             log.warning("Ausrichtungserkennung fehlgeschlagen: %s", e)
-            return 0
-    out = r.stdout + r.stderr
-    rotate, conf = 0, 0.0
-    for line in out.splitlines():
+            return None
+    rotate, conf = None, 0.0
+    for line in (r.stdout + r.stderr).splitlines():
         if line.startswith("Rotate:"):
             rotate = int(line.split(":")[1])
         elif line.startswith("Orientation confidence:"):
             conf = float(line.split(":")[1])
-    if rotate and conf < 1.5:
-        log.debug("Ausrichtung unsicher (Rotate %d, Konfidenz %.2f), Seite bleibt", rotate, conf)
-        return 0
-    return rotate
+    return None if rotate is None else (rotate, conf)
 
 
-def postprocess(jpeg: bytes) -> bytes:
+def page_rotation(im: Image.Image, n: int) -> int:
+    if ROTATE != "auto":
+        return int(ROTATE or 0) % 360
+    osd = detect_rotation(im)
+    if osd and osd[1] >= ROTATE_MIN_CONFIDENCE:
+        log.info("Seite %d: Ausrichtung erkannt, drehe %d° (Konfidenz %.1f)", n, osd[0], osd[1])
+        return osd[0]
+    reason = "keine Erkennung" if not osd else f"unsicher: {osd[0]}° bei Konfidenz {osd[1]:.1f}"
+    log.info("Seite %d: %s, drehe Standard %d°", n, reason, ROTATE_FALLBACK)
+    return ROTATE_FALLBACK
+
+
+def postprocess(jpeg: bytes, n: int = 0) -> bytes:
     if not (AUTO_COLOR or AUTO_CROP or ROTATE != "0"):
         return jpeg
     im = Image.open(io.BytesIO(jpeg))
     changed = False
-    rotate = detect_rotation(im) if ROTATE == "auto" else int(ROTATE or 0) % 360
+    rotate = page_rotation(im, n)
     if rotate:
         im = im.rotate(-rotate, expand=True)  # PIL dreht gegen den Uhrzeigersinn
         changed = True
-        log.info("Seite um %d° gedreht", rotate)
     if AUTO_CROP:
         cropped = crop_background(im)
         changed = cropped.size != im.size
@@ -280,7 +289,7 @@ def build_pdf(pages: list[bytes], dpi: int) -> tuple[bytes, int]:
     kept = pages
     if SKIP_BLANK:
         kept = [p for p in pages if not is_blank(p)] or pages
-    kept = [postprocess(p) for p in kept]
+    kept = [postprocess(p, i + 1) for i, p in enumerate(kept)]
     layout = img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))
     return img2pdf.convert(kept, layout_fun=layout), len(pages) - len(kept)
 

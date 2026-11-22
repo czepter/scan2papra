@@ -52,7 +52,7 @@ Kommt das Ereignis, aber `CreateScanJob abgelehnt`: `LOG_LEVEL=DEBUG` setzen und
 - `SKIP_BLANK`: leere Seiten (z. B. Rückseiten beim Duplex) fallen raus
 - `AUTO_COLOR`: Seiten ohne Farbe werden als Graustufen gespeichert, das spart Platz
 - `AUTO_CROP`: schneidet dunklen Einzugshintergrund unter kurzen oder schmalen Belegen (Kassenbons) ab
-- `ROTATE=auto`: dreht jede Seite per Texterkennung (tesseract) richtig herum, auch bei gemischt eingelegten Stapeln. Feste Werte `0`, `90`, `180`, `270` überspringen die Erkennung
+- `ROTATE=auto`: dreht jede Seite per Texterkennung (tesseract) richtig herum, auch bei gemischt eingelegten Stapeln. Ist die Erkennung unsicher (wenig Text, Konfidenz unter `ROTATE_MIN_CONFIDENCE`), gilt `ROTATE_FALLBACK`. Für den ES-C320W ist das `180`, weil der U-Turn-Einzug die Seiten kopfüber liefert. Feste Werte `0`, `90`, `180`, `270` in `ROTATE` überspringen die Erkennung
 - Eine Schräglagenkorrektur gibt es nicht
 
 ## Endpunkte
