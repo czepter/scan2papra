@@ -8,6 +8,7 @@ Ablauf (WS-Scan):
 
 import copy
 import email
+import socket
 import io
 import logging
 import threading
@@ -15,6 +16,7 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
 import requests
 from PIL import Image
@@ -117,17 +119,53 @@ class WSDClient:
 
     # ------------------------------------------------------------ Verbindung
 
+    def udp_probe(self, timeout: float = 4.0) -> tuple[str, str]:
+        """WS-Discovery-Probe per UDP direkt an den Scanner (Port 3702). Liefert (EndpointReference, XAddr)."""
+        host = urlparse(self.target).hostname
+        msg = f"""<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="{NS['soap']}" xmlns:wsa="{NS['wsa']}" xmlns:wsd="{NS['wsd']}">
+  <soap:Header>
+    <wsa:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</wsa:To>
+    <wsa:Action>{NS['wsd']}/Probe</wsa:Action>
+    <wsa:MessageID>urn:uuid:{uuid.uuid4()}</wsa:MessageID>
+  </soap:Header>
+  <soap:Body><wsd:Probe/></soap:Body>
+</soap:Envelope>""".encode()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(1.0)
+        try:
+            deadline = time.time() + timeout
+            sent = 0
+            while time.time() < deadline:
+                if sent < 3:
+                    sock.sendto(msg, (host, 3702))
+                    sent += 1
+                try:
+                    data, addr = sock.recvfrom(65535)
+                except socket.timeout:
+                    continue
+                try:
+                    x = ET.fromstring(data)
+                except ET.ParseError:
+                    continue
+                for match in x.iterfind(".//wsd:ProbeMatch", NS):
+                    ep = text(match, "wsa:EndpointReference/wsa:Address")
+                    xaddrs = text(match, "wsd:XAddrs").split()
+                    xaddr = next((a for a in xaddrs if a.startswith("http://") and host in a), "") \
+                        or next((a for a in xaddrs if a.startswith("http")), "")
+                    if ep:
+                        return ep, xaddr
+        finally:
+            sock.close()
+        raise RuntimeError(f"keine WS-Discovery-Antwort von {host}:3702 (WSD im Scanner aktiviert?)")
+
     def discover(self):
         ep_ref = self.ep_ref
         if not ep_ref:
-            try:
-                msg = envelope("urn:schemas-xmlsoap-org:ws:2005:04:discovery",
-                               f"{NS['wsd']}/Probe", self.from_urn, "<wsd:Probe/>")
-                x = self.post(self.target, msg, "Probe", timeout=15)
-                ep_ref = text(x, ".//wsd:ProbeMatch/wsa:EndpointReference/wsa:Address")
-            except Exception as e:
-                log.info("Probe ohne Ergebnis (%s) – nutze Ziel-URL als Adresse", e)
-            ep_ref = ep_ref or self.target
+            ep_ref, xaddr = self.udp_probe()
+            log.info("WS-Discovery: %s via %s", ep_ref, xaddr or self.target)
+            if xaddr:
+                self.target = xaddr
 
         msg = envelope(ep_ref, "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get", self.from_urn)
         x = self.post(self.target, msg, "Get")
