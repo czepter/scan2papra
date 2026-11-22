@@ -65,8 +65,8 @@ ROTATE = env("ROTATE", "auto").lower()      # auto | 0 | 90 | 180 | 270     # du
 FILENAME_PREFIX = env("FILENAME_PREFIX", "scan")
 
 AUTO_SCAN = env_bool("AUTO_SCAN", False)
-AUTO_SCAN_DELAY = float(env("AUTO_SCAN_DELAY", "3"))
-POLL_INTERVAL = float(env("POLL_INTERVAL", "2"))
+AUTO_SCAN_DELAY = float(env("AUTO_SCAN_DELAY", "6"))  # so lange muss der Einzug ununterbrochen belegt sein
+POLL_INTERVAL = float(env("POLL_INTERVAL", "1"))
 
 WSD_ENABLED = env_bool("WSD_ENABLED", True)
 WSD_TARGET = env("WSD_TARGET", f"http://{urlparse(SCANNER_URL).hostname}:80/WSD/DEVICE")
@@ -122,15 +122,26 @@ def set_state(**kw):
 
 # ---------------------------------------------------------------- eSCL
 
-def adf_loaded() -> bool | None:
+PWG_NS = "http://www.pwg.org/schemas/2010/12/sm"
+
+
+def scanner_status() -> tuple[bool | None, str]:
+    """(Papier im Einzug?, Scanner-Zustand z. B. Idle/Processing/Stopped)"""
     try:
         r = session.get(f"{SCANNER_URL}/ScannerStatus", timeout=10)
         r.raise_for_status()
-        el = ET.fromstring(r.content).find(f".//{{{ESCL_NS}}}AdfState")
-        return el is not None and (el.text or "").strip() == "ScannerAdfLoaded"
+        root = ET.fromstring(r.content)
+        adf = root.find(f".//{{{ESCL_NS}}}AdfState")
+        st = root.find(f".//{{{PWG_NS}}}State")
+        return (adf is not None and (adf.text or "").strip() == "ScannerAdfLoaded",
+                (st.text or "").strip() if st is not None else "")
     except Exception as e:  # Scanner schläft / nicht erreichbar
         log.debug("ScannerStatus nicht abrufbar: %s", e)
-        return None
+        return None, ""
+
+
+def adf_loaded() -> bool | None:
+    return scanner_status()[0]
 
 
 def escl_scan(duplex: bool, color: str, dpi: int) -> list[bytes]:
@@ -359,17 +370,24 @@ def on_wsd_button(fetch):
 
 
 def auto_scan_loop():
-    log.info("AUTO_SCAN aktiv (Poll %.1fs, Verzögerung %.1fs)", POLL_INTERVAL, AUTO_SCAN_DELAY)
-    prev = True  # beim Start liegendes Papier nicht sofort scannen
+    log.info("AUTO_SCAN aktiv: Scan startet, wenn der Einzug %.0fs ununterbrochen belegt ist", AUTO_SCAN_DELAY)
+    prev = True          # beim Start liegendes Papier nicht sofort scannen
+    loaded_since = None
     while True:
-        loaded = adf_loaded()
-        if loaded and not prev and not scan_lock.locked():
-            time.sleep(AUTO_SCAN_DELAY)  # Stapel fertig einlegen lassen
-            if adf_loaded():
-                run_scan("auto", DUPLEX, COLOR_MODE, DPI)
-                loaded = adf_loaded()
-        if loaded is not None:
-            prev = loaded
+        loaded, state = scanner_status()
+        if loaded is None:
+            loaded_since = None
+        elif not loaded:
+            prev, loaded_since = False, None
+        elif not prev and not scan_lock.locked():
+            loaded_since = loaded_since or time.time()
+            if time.time() - loaded_since >= AUTO_SCAN_DELAY:
+                if state and state != "Idle":
+                    log.info("Papier liegt, Scanner meldet '%s' – warte", state)
+                else:
+                    run_scan("auto", DUPLEX, COLOR_MODE, DPI)
+                    # nach dem Scan (oder Papierstau) erst wieder auslösen, wenn der Einzug leer war
+                    prev, loaded_since = True, None
         time.sleep(POLL_INTERVAL)
 
 

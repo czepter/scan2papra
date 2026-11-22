@@ -35,8 +35,8 @@ services:
       - FILENAME_PREFIX=${FILENAME_PREFIX:-scan}
       # Auto-Scan beim Einlegen (experimentell, Alternative zur Taste)
       - AUTO_SCAN=${AUTO_SCAN:-false}
-      - AUTO_SCAN_DELAY=${AUTO_SCAN_DELAY:-3}
-      - POLL_INTERVAL=${POLL_INTERVAL:-2}
+      - AUTO_SCAN_DELAY=${AUTO_SCAN_DELAY:-6}
+      - POLL_INTERVAL=${POLL_INTERVAL:-1}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - scan2papra-data:/data
