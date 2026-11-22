@@ -33,7 +33,7 @@ log = logging.getLogger("scan2papra")
 
 
 def env(name: str, default: str | None = None, required: bool = False) -> str:
-    val = os.getenv(name, default)
+    val = os.getenv(name) or default  # leere Werte aus Compose (${VAR:-}) zählen als nicht gesetzt
     if required and not val:
         raise SystemExit(f"Umgebungsvariable {name} fehlt")
     return val or ""
