@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import img2pdf
 import requests
 import urllib3
-from PIL import Image
+from PIL import Image, ImageChops
 
 import wsd
 
@@ -57,6 +57,8 @@ DUPLEX = env_bool("DUPLEX", True)
 PAPER = env("PAPER", "A4").upper()
 SKIP_BLANK = env_bool("SKIP_BLANK", True)
 BLANK_RATIO = float(env("BLANK_RATIO", "0.004"))
+AUTO_COLOR = env_bool("AUTO_COLOR", True)   # Seiten ohne Farbe als Graustufen speichern
+AUTO_CROP = env_bool("AUTO_CROP", True)     # dunklen Einzugshintergrund unter kurzen Belegen abschneiden
 FILENAME_PREFIX = env("FILENAME_PREFIX", "scan")
 
 AUTO_SCAN = env_bool("AUTO_SCAN", False)
@@ -180,10 +182,60 @@ def is_blank(jpeg: bytes) -> bool:
     return dark / max(sum(hist), 1) < BLANK_RATIO
 
 
+def has_color(im: Image.Image) -> bool:
+    small = im.convert("RGB")
+    small.thumbnail((400, 400))
+    r, g, b = small.split()
+    spread = ImageChops.subtract(ImageChops.lighter(ImageChops.lighter(r, g), b),
+                                 ImageChops.darker(ImageChops.darker(r, g), b))
+    hist = spread.histogram()
+    colored = sum(hist[40:])
+    return colored / max(sum(hist), 1) > 0.002
+
+
+def crop_background(im: Image.Image) -> Image.Image:
+    """Schneidet dunklen Einzugshintergrund ab, wenn der Beleg kürzer/schmaler als der Scanbereich ist."""
+    gray = im.convert("L")
+    w, h = gray.size
+    strip = gray.crop((0, int(h * 0.98), w, h))
+    bg = sum(i * c for i, c in enumerate(strip.histogram())) / max(strip.width * strip.height, 1)
+    if bg > 170:  # heller Rand = Papier bis zum Ende, nichts zu schneiden
+        return im
+    mask = gray.point(lambda v: 255 if v > bg + 50 else 0)
+    box = mask.getbbox()
+    if not box:
+        return im
+    pad = 8
+    box = (max(box[0] - pad, 0), max(box[1] - pad, 0), min(box[2] + pad, w), min(box[3] + pad, h))
+    if (box[2] - box[0]) * (box[3] - box[1]) > 0.97 * w * h:
+        return im
+    return im.crop(box)
+
+
+def postprocess(jpeg: bytes) -> bytes:
+    if not (AUTO_COLOR or AUTO_CROP):
+        return jpeg
+    im = Image.open(io.BytesIO(jpeg))
+    changed = False
+    if AUTO_CROP:
+        cropped = crop_background(im)
+        changed = cropped.size != im.size
+        im = cropped
+    if AUTO_COLOR and im.mode != "L" and not has_color(im):
+        im = im.convert("L")
+        changed = True
+    if not changed:
+        return jpeg
+    out = io.BytesIO()
+    im.save(out, "JPEG", quality=88, dpi=(DPI, DPI))
+    return out.getvalue()
+
+
 def build_pdf(pages: list[bytes], dpi: int) -> tuple[bytes, int]:
     kept = pages
     if SKIP_BLANK:
         kept = [p for p in pages if not is_blank(p)] or pages
+    kept = [postprocess(p) for p in kept]
     layout = img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))
     return img2pdf.convert(kept, layout_fun=layout), len(pages) - len(kept)
 

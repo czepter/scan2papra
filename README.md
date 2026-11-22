@@ -47,6 +47,13 @@ Die Org-ID steht in der URL (`/organizations/<id>`).
 Kommt bei Schritt 3 nichts, sendet der Scanner beim Tastendruck kein WSD-Ereignis. Dann `AUTO_SCAN=true` oder einen Taster mit `POST /scan` nehmen.
 Kommt das Ereignis, aber `CreateScanJob abgelehnt`: `LOG_LEVEL=DEBUG` setzen und das Log ansehen.
 
+## Bildverarbeitung
+
+- `SKIP_BLANK`: leere Seiten (z. B. Rückseiten beim Duplex) fallen raus
+- `AUTO_COLOR`: Seiten ohne Farbe werden als Graustufen gespeichert, das spart Platz
+- `AUTO_CROP`: schneidet dunklen Einzugshintergrund unter kurzen oder schmalen Belegen (Kassenbons) ab
+- Automatisches Drehen und Schräglagenkorrektur gibt es nicht, weil eSCL und WSD das nicht anbieten
+
 ## Endpunkte
 
 | Methode | Pfad | |
