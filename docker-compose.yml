@@ -1,0 +1,42 @@
+services:
+  scan2papra:
+    image: ghcr.io/czepter/scan2papra:latest
+    container_name: scan2papra
+    restart: unless-stopped
+    ports:
+      - "${UI_PORT:-8080}:8080"   # Web-UI und /scan
+      - "${WSD_PORT:-6666}:6666"  # WSD-Callback, muss vom Scanner erreichbar sein
+    environment:
+      - TRIGGER_TOKEN=${TRIGGER_TOKEN:?TRIGGER_TOKEN setzen (z. B. openssl rand -hex 32)}
+      # Scanner
+      - SCANNER_URL=${SCANNER_URL:?z. B. https://<scanner-ip>/eSCL}
+      - SCANNER_VERIFY_TLS=${SCANNER_VERIFY_TLS:-false}
+      # Scan-Taste (WSD-Push)
+      - WSD_ENABLED=${WSD_ENABLED:-true}
+      - WSD_TARGET=${WSD_TARGET:-}
+      - WSD_CALLBACK_URL=${WSD_CALLBACK_URL:-}
+      - WSD_DISPLAY_NAME=${WSD_DISPLAY_NAME:-Papra}
+      - WSD_EP_REF=${WSD_EP_REF:-}
+      # Papra
+      - PAPRA_URL=${PAPRA_URL:?}
+      - PAPRA_API_KEY=${PAPRA_API_KEY:?}
+      - PAPRA_ORG_ID=${PAPRA_ORG_ID:?}
+      - PAPRA_TAG_IDS=${PAPRA_TAG_IDS:-}
+      # Scan-Defaults
+      - DPI=${DPI:-300}
+      - COLOR_MODE=${COLOR_MODE:-RGB24}
+      - DUPLEX=${DUPLEX:-true}
+      - PAPER=${PAPER:-A4}
+      - SKIP_BLANK=${SKIP_BLANK:-true}
+      - BLANK_RATIO=${BLANK_RATIO:-0.004}
+      - FILENAME_PREFIX=${FILENAME_PREFIX:-scan}
+      # Auto-Scan beim Einlegen (experimentell, Alternative zur Taste)
+      - AUTO_SCAN=${AUTO_SCAN:-false}
+      - AUTO_SCAN_DELAY=${AUTO_SCAN_DELAY:-3}
+      - POLL_INTERVAL=${POLL_INTERVAL:-2}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - scan2papra-data:/data
+
+volumes:
+  scan2papra-data:
