@@ -381,7 +381,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    FAILED_DIR.mkdir(parents=True, exist_ok=True)
+    global FAILED_DIR
+    try:
+        FAILED_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        FAILED_DIR = Path("/tmp/scan2papra-failed")
+        FAILED_DIR.mkdir(parents=True, exist_ok=True)
+        log.warning("%s nicht beschreibbar (%s) – fehlgeschlagene Uploads landen in %s und gehen bei Neustart verloren",
+                    DATA_DIR, e, FAILED_DIR)
     if not TRIGGER_TOKEN:
         log.warning("TRIGGER_TOKEN leer – Endpunkte sind ungeschützt")
     threading.Thread(target=retry_loop, daemon=True).start()
